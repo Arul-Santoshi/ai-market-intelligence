@@ -111,7 +111,6 @@ def generate_insights(aggregated_data: dict, comparison_data: dict | None = None
         client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
         message = client.messages.create(
             model=model,
-            model="claude-3-haiku-20240307",
             max_tokens=1000,
             system=SYSTEM_PROMPT_INSIGHTS,
             messages=[{"role": "user", "content": user_content}],
@@ -140,7 +139,6 @@ def generate_summary(aggregated_data: dict, insights: str, model: str = DEFAULT_
         client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
         message = client.messages.create(
             model=model,
-            model="claude-3-haiku-20240307",
             max_tokens=200,
             system=SYSTEM_PROMPT_SUMMARY,
             messages=[{"role": "user", "content": user_content}],
