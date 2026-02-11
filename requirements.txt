@@ -1,0 +1,15 @@
+streamlit
+yfinance
+newsapi-python
+pandas
+numpy
+anthropic
+python-dotenv
+google-auth-oauthlib
+google-auth-httplib2
+google-api-python-client
+apscheduler
+sentence-transformers
+torch
+requests
+fredapi
