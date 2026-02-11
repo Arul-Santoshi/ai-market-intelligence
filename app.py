@@ -331,6 +331,7 @@ def _render_tab_today():
         data=report["markdown_content"],
         file_name=f"ai_market_report_{today}.md",
         mime="text/markdown",
+        key="download_today",
     )
 
 
@@ -536,6 +537,7 @@ def _render_tab_archive():
             data=report["markdown_content"],
             file_name=f"ai_market_report_{date_str}.md",
             mime="text/markdown",
+            key=f"download_archive_{date_str}",
         )
     else:
         st.info(f"No report found for {date_str}.")
