@@ -1,13 +1,13 @@
 <#
 .SYNOPSIS
-    AI Market Intelligence — Quickstart script for Windows.
+    AI Market Intelligence - Quickstart script for Windows.
 
 .DESCRIPTION
     Handles first-time setup and subsequent runs:
       1. Checks Python 3.10+ is available
-      2. Creates & activates a virtual environment
+      2. Creates and activates a virtual environment
       3. Installs / updates dependencies
-      4. Copies .env.example → .env (if missing) and prompts for keys
+      4. Copies .env.example to .env (if missing) and prompts for keys
       5. Initialises the SQLite database
       6. Offers to run a test report or launch the Streamlit dashboard
 
@@ -38,7 +38,7 @@ param(
 Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
 
-# ── Resolve project root (same folder as this script) ──────────────────────
+# -- Resolve project root (same folder as this script) ---------------------
 $ProjectRoot = Split-Path -Parent $MyInvocation.MyCommand.Definition
 Push-Location $ProjectRoot
 
@@ -49,9 +49,9 @@ function Write-Err   { param([string]$msg) Write-Host "   $msg" -ForegroundColor
 
 try {
 
-# ───────────────────────────────────────────────────────────────────────────
+# --------------------------------------------------------------------------
 # 1. Locate Python 3.10+
-# ───────────────────────────────────────────────────────────────────────────
+# --------------------------------------------------------------------------
 Write-Step "Checking Python installation..."
 
 $PythonCmd = $null
@@ -73,7 +73,7 @@ foreach ($candidate in @("python", "python3", "py")) {
     }
 }
 
-# On Windows the `py` launcher can target a specific version
+# On Windows the py launcher can target a specific version
 if (-not $PythonCmd) {
     try {
         $ver = & py -3.10 --version 2>&1
@@ -92,9 +92,9 @@ if (-not $PythonCmd) {
 $PythonVersion = & $PythonCmd --version 2>&1
 Write-Ok "Found $PythonVersion (command: $PythonCmd)"
 
-# ───────────────────────────────────────────────────────────────────────────
+# --------------------------------------------------------------------------
 # 2. Virtual environment
-# ───────────────────────────────────────────────────────────────────────────
+# --------------------------------------------------------------------------
 Write-Step "Setting up virtual environment..."
 
 $VenvDir  = Join-Path $ProjectRoot "venv"
@@ -114,15 +114,15 @@ if (-not (Test-Path $VenvDir)) {
 
 # Activate
 if (-not (Test-Path $Activate)) {
-    Write-Err "Could not find $Activate — venv may be corrupted. Delete .\venv and re-run."
+    Write-Err "Could not find $Activate -- venv may be corrupted. Delete .\venv and re-run."
     exit 1
 }
 . $Activate
 Write-Ok "Virtual environment activated."
 
-# ───────────────────────────────────────────────────────────────────────────
+# --------------------------------------------------------------------------
 # 3. Install / update dependencies
-# ───────────────────────────────────────────────────────────────────────────
+# --------------------------------------------------------------------------
 Write-Step "Installing dependencies (this may take a few minutes on first run)..."
 
 python -m pip install --upgrade pip --quiet 2>&1 | Out-Null
@@ -134,9 +134,9 @@ if ($LASTEXITCODE -ne 0) {
 }
 Write-Ok "All dependencies installed."
 
-# ───────────────────────────────────────────────────────────────────────────
+# --------------------------------------------------------------------------
 # 4. Environment file (.env)
-# ───────────────────────────────────────────────────────────────────────────
+# --------------------------------------------------------------------------
 Write-Step "Checking environment configuration..."
 
 $EnvFile    = Join-Path $ProjectRoot ".env"
@@ -145,7 +145,7 @@ $EnvExample = Join-Path $ProjectRoot ".env.example"
 if (-not (Test-Path $EnvFile)) {
     if (Test-Path $EnvExample) {
         Copy-Item $EnvExample $EnvFile
-        Write-Warn ".env created from .env.example — you need to fill in your API keys."
+        Write-Warn ".env created from .env.example -- you need to fill in your API keys."
     } else {
         # Create a minimal .env from scratch
         @(
@@ -155,7 +155,7 @@ if (-not (Test-Path $EnvFile)) {
             "GMAIL_APP_PASSWORD=",
             "FRED_API_KEY="
         ) | Set-Content $EnvFile
-        Write-Warn ".env created with empty keys — you need to fill in your API keys."
+        Write-Warn ".env created with empty keys -- you need to fill in your API keys."
     }
 }
 
@@ -199,9 +199,9 @@ if ($MissingKeys.Count -gt 0) {
     Write-Ok ".env is configured."
 }
 
-# ───────────────────────────────────────────────────────────────────────────
+# --------------------------------------------------------------------------
 # 5. Create required directories
-# ───────────────────────────────────────────────────────────────────────────
+# --------------------------------------------------------------------------
 Write-Step "Ensuring directories exist..."
 
 foreach ($dir in @("reports", "logs")) {
@@ -213,9 +213,9 @@ foreach ($dir in @("reports", "logs")) {
 }
 Write-Ok "Directories ready."
 
-# ───────────────────────────────────────────────────────────────────────────
+# --------------------------------------------------------------------------
 # 6. Initialise database
-# ───────────────────────────────────────────────────────────────────────────
+# --------------------------------------------------------------------------
 Write-Step "Initialising database..."
 
 python -c "from src.database_handler import init_database; init_database()" 2>&1
@@ -226,12 +226,12 @@ if ($LASTEXITCODE -ne 0) {
 }
 Write-Ok "Database ready (market_data.db)."
 
-# ───────────────────────────────────────────────────────────────────────────
+# --------------------------------------------------------------------------
 # 7. Launch
-# ───────────────────────────────────────────────────────────────────────────
+# --------------------------------------------------------------------------
 Write-Host ""
 Write-Host "============================================" -ForegroundColor Cyan
-Write-Host "   AI Market Intelligence — Ready!          " -ForegroundColor Cyan
+Write-Host "   AI Market Intelligence -- Ready!         " -ForegroundColor Cyan
 Write-Host "============================================" -ForegroundColor Cyan
 Write-Host ""
 
@@ -255,8 +255,7 @@ else {
 
 } # end try
 catch {
-    Write-Err "An unexpected error occurred:"
-    Write-Err $_.Exception.Message
+    Write-Err ("An unexpected error occurred: " + $_.Exception.Message)
     exit 1
 }
 finally {
