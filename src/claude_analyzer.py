@@ -120,8 +120,8 @@ def generate_insights(aggregated_data: dict, comparison_data: dict | None = None
         logger.info("Claude insights generated (%d chars)", len(text))
         return text
     except Exception as exc:
-        logger.error("Claude API call failed (insights): %s", exc)
-        return "_Claude insights unavailable due to an API error._"
+        logger.error("Claude API call failed (insights): %s", exc, exc_info=True)
+        return f"_Claude insights unavailable due to an API error: {exc}_"
 
 
 def generate_summary(aggregated_data: dict, insights: str, model: str = DEFAULT_MODEL) -> str:
@@ -149,5 +149,5 @@ def generate_summary(aggregated_data: dict, insights: str, model: str = DEFAULT_
         logger.info("Claude summary generated (%d chars)", len(text))
         return text
     except Exception as exc:
-        logger.error("Claude API call failed (summary): %s", exc)
-        return "_Executive summary unavailable due to an API error._"
+        logger.error("Claude API call failed (summary): %s", exc, exc_info=True)
+        return f"_Executive summary unavailable due to an API error: {exc}_"
