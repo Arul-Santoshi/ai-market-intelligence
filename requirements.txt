@@ -14,3 +14,4 @@ torch
 requests
 fredapi
 markdown
+plotly
