@@ -9,7 +9,7 @@ import plotly.express as px
 import plotly.graph_objects as go
 import streamlit as st
 
-from config import DATABASE_PATH, GMAIL_EMAIL, LOGS_FOLDER, SCHEDULED_TIME
+from config import AVAILABLE_MODELS, DATABASE_PATH, DEFAULT_MODEL, GMAIL_EMAIL, LOGS_FOLDER, SCHEDULED_TIME
 
 # ---------------------------------------------------------------------------
 # Page config (must be first Streamlit call)
@@ -158,6 +158,14 @@ def _get_db_info():
 def _render_sidebar():
     st.sidebar.title("Settings")
 
+    # Claude model selector
+    st.sidebar.subheader("Claude Model")
+    selected_model = st.sidebar.selectbox(
+        "Model for analysis",
+        options=AVAILABLE_MODELS,
+        index=AVAILABLE_MODELS.index(DEFAULT_MODEL) if DEFAULT_MODEL in AVAILABLE_MODELS else 0,
+    )
+
     # Next scheduled run
     st.sidebar.subheader("Schedule")
     st.sidebar.write(f"**Next run:** Daily at {SCHEDULED_TIME}")
@@ -168,7 +176,7 @@ def _render_sidebar():
         with st.sidebar.status("Running daily report...", expanded=True):
             try:
                 from src.scheduler import run_daily_report
-                status = run_daily_report()
+                status = run_daily_report(model=selected_model)
                 failed = [k for k, v in status.items() if v != "success"]
                 if failed:
                     st.sidebar.warning(f"Completed with issues: {', '.join(failed)}")

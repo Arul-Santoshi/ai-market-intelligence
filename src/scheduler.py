@@ -4,7 +4,7 @@ from datetime import datetime
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
 
-from config import GMAIL_EMAIL, SCHEDULED_TIME
+from config import DEFAULT_MODEL, GMAIL_EMAIL, SCHEDULED_TIME
 from src.claude_analyzer import generate_insights, generate_summary
 from src.data_fetchers import (
     fetch_ai_news,
@@ -25,7 +25,7 @@ from src.sentiment_analyzer import analyze_ai_news_sentiment
 logger = logging.getLogger(__name__)
 
 
-def run_daily_report() -> dict:
+def run_daily_report(model: str = DEFAULT_MODEL) -> dict:
     """Execute the full daily pipeline.
 
     Steps:
@@ -124,8 +124,8 @@ def run_daily_report() -> dict:
 
     # 5 — Claude insights ----------------------------------------------------
     try:
-        insights = generate_insights(aggregated, comparison)
-        summary = generate_summary(aggregated, insights)
+        insights = generate_insights(aggregated, comparison, model=model)
+        summary = generate_summary(aggregated, insights, model=model)
         status["claude_analysis"] = "success"
         logger.info("Claude analysis complete")
     except Exception as exc:

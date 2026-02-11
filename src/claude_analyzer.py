@@ -3,7 +3,7 @@ import logging
 
 import anthropic
 
-from config import ANTHROPIC_API_KEY
+from config import ANTHROPIC_API_KEY, DEFAULT_MODEL
 
 logger = logging.getLogger(__name__)
 
@@ -99,7 +99,7 @@ def _format_data_for_prompt(aggregated_data: dict, comparison_data: dict | None 
     return "\n".join(parts)
 
 
-def generate_insights(aggregated_data: dict, comparison_data: dict | None = None) -> str:
+def generate_insights(aggregated_data: dict, comparison_data: dict | None = None, model: str = DEFAULT_MODEL) -> str:
     """Ask Claude to produce market insights from today's data."""
     if not ANTHROPIC_API_KEY:
         logger.warning("ANTHROPIC_API_KEY not set — returning placeholder insights")
@@ -110,7 +110,7 @@ def generate_insights(aggregated_data: dict, comparison_data: dict | None = None
     try:
         client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
         message = client.messages.create(
-            model="claude-sonnet-4-5-20250514",
+            model=model,
             max_tokens=1000,
             system=SYSTEM_PROMPT_INSIGHTS,
             messages=[{"role": "user", "content": user_content}],
@@ -123,7 +123,7 @@ def generate_insights(aggregated_data: dict, comparison_data: dict | None = None
         return "_Claude insights unavailable due to an API error._"
 
 
-def generate_summary(aggregated_data: dict, insights: str) -> str:
+def generate_summary(aggregated_data: dict, insights: str, model: str = DEFAULT_MODEL) -> str:
     """Ask Claude for a short executive summary."""
     if not ANTHROPIC_API_KEY:
         logger.warning("ANTHROPIC_API_KEY not set — returning placeholder summary")
@@ -138,7 +138,7 @@ def generate_summary(aggregated_data: dict, insights: str) -> str:
     try:
         client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
         message = client.messages.create(
-            model="claude-sonnet-4-5-20250514",
+            model=model,
             max_tokens=200,
             system=SYSTEM_PROMPT_SUMMARY,
             messages=[{"role": "user", "content": user_content}],
