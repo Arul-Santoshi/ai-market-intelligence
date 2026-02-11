@@ -213,3 +213,5 @@ reports/*.md
 reports/*.json
 logs/*.log
 chroma_db/
+token.pickle
+credentials.json
