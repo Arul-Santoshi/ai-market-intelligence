@@ -1,11 +1,17 @@
-import json
 import logging
 
 import anthropic
 
-from config import ANTHROPIC_API_KEY, CLAUDE_MODEL
+from config import ANTHROPIC_API_KEY, AVAILABLE_MODELS, DEFAULT_MODEL
 
 logger = logging.getLogger(__name__)
+
+# Fallback order: configured model first, then the rest of AVAILABLE_MODELS,
+# then older model IDs that are widely accessible.
+_FALLBACK_MODELS = [
+    "claude-3-5-sonnet-20241022",
+    "claude-3-haiku-20240307",
+]
 
 SYSTEM_PROMPT_INSIGHTS = (
     "You are a financial and tech market analyst. Analyze the provided market data, "
@@ -111,7 +117,44 @@ def _format_data_for_prompt(aggregated_data: dict, comparison_data: dict | None 
     return "\n".join(parts)
 
 
-def generate_insights(aggregated_data: dict, comparison_data: dict | None = None) -> str:
+def _call_claude(*, system: str, user_content: str, max_tokens: int, model: str) -> str:
+    """Call the Claude API with automatic model fallback.
+
+    Tries the requested model first. If it fails with a NotFoundError or
+    PermissionDeniedError, retries with alternative models before giving up.
+    """
+    client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
+
+    # Build ordered list of models to try (no duplicates).
+    models_to_try: list[str] = [model]
+    for m in [*AVAILABLE_MODELS, *_FALLBACK_MODELS]:
+        if m not in models_to_try:
+            models_to_try.append(m)
+
+    last_exc: Exception | None = None
+    for candidate in models_to_try:
+        try:
+            message = client.messages.create(
+                model=candidate,
+                max_tokens=max_tokens,
+                system=system,
+                messages=[{"role": "user", "content": user_content}],
+            )
+            if candidate != model:
+                logger.info("Model %s unavailable, succeeded with fallback %s", model, candidate)
+            return message.content[0].text
+        except (anthropic.NotFoundError, anthropic.PermissionDeniedError) as exc:
+            logger.warning("Model %s not available: %s — trying next fallback", candidate, exc)
+            last_exc = exc
+            continue
+        except Exception as exc:
+            # Non-model errors (auth, rate-limit, network) — no point trying other models.
+            raise exc from None
+
+    raise last_exc  # type: ignore[misc]
+
+
+def generate_insights(aggregated_data: dict, comparison_data: dict | None = None, model: str = DEFAULT_MODEL) -> str:
     """Ask Claude to produce market insights from today's data."""
     if not ANTHROPIC_API_KEY:
         logger.warning("ANTHROPIC_API_KEY not set — returning placeholder insights")
@@ -120,22 +163,25 @@ def generate_insights(aggregated_data: dict, comparison_data: dict | None = None
     user_content = _format_data_for_prompt(aggregated_data, comparison_data)
 
     try:
-        client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
-        message = client.messages.create(
-            model=CLAUDE_MODEL,
-            max_tokens=1000,
+        text = _call_claude(
             system=SYSTEM_PROMPT_INSIGHTS,
-            messages=[{"role": "user", "content": user_content}],
+            user_content=user_content,
+            max_tokens=1000,
+            model=model,
         )
-        text = message.content[0].text
-        logger.info("Claude insights generated (%d chars, model=%s)", len(text), CLAUDE_MODEL)
+        logger.info("Claude insights generated (%d chars)", len(text))
         return text
     except Exception as exc:
-        logger.error("Claude API call failed (insights): %s", exc)
-        return "_Claude insights unavailable due to an API error._"
+        logger.error("Claude API call failed (insights): %s", exc, exc_info=True)
+        return f"_Claude insights unavailable due to an API error: {exc}_"
 
 
-def generate_summary(aggregated_data: dict, insights: str, comparison_data: dict | None = None) -> str:
+def generate_summary(
+    aggregated_data: dict,
+    insights: str,
+    comparison_data: dict | None = None,
+    model: str = DEFAULT_MODEL,
+) -> str:
     """Ask Claude for a short executive summary.
 
     Now also receives comparison_data so the summary can reference
@@ -152,16 +198,14 @@ def generate_summary(aggregated_data: dict, insights: str, comparison_data: dict
     )
 
     try:
-        client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
-        message = client.messages.create(
-            model=CLAUDE_MODEL,
-            max_tokens=200,
+        text = _call_claude(
             system=SYSTEM_PROMPT_SUMMARY,
-            messages=[{"role": "user", "content": user_content}],
+            user_content=user_content,
+            max_tokens=200,
+            model=model,
         )
-        text = message.content[0].text
-        logger.info("Claude summary generated (%d chars, model=%s)", len(text), CLAUDE_MODEL)
+        logger.info("Claude summary generated (%d chars)", len(text))
         return text
     except Exception as exc:
-        logger.error("Claude API call failed (summary): %s", exc)
-        return "_Executive summary unavailable due to an API error._"
+        logger.error("Claude API call failed (summary): %s", exc, exc_info=True)
+        return f"_Executive summary unavailable due to an API error: {exc}_"

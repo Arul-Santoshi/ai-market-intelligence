@@ -5,11 +5,18 @@ load_dotenv(override=True)
 
 # --- API Keys ---
 ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY", "")
-CLAUDE_MODEL = os.getenv("CLAUDE_MODEL", "claude-3-haiku-20240307")
 NEWSAPI_KEY = os.getenv("NEWSAPI_KEY", "")
 GMAIL_EMAIL = os.getenv("GMAIL_EMAIL", "")
 GMAIL_APP_PASSWORD = os.getenv("GMAIL_APP_PASSWORD", "")
 FRED_API_KEY = os.getenv("FRED_API_KEY", "")
+
+# --- Claude Model ---
+DEFAULT_MODEL = os.getenv("CLAUDE_MODEL", "claude-sonnet-4-5-20250929")
+AVAILABLE_MODELS = [
+    "claude-sonnet-4-5-20250929",
+    "claude-haiku-4-5-20251001",
+    "claude-opus-4-6",
+]
 
 # --- Stock Tickers ---
 STOCK_TICKERS = ["^GSPC", "^IXIC", "NVDA", "MSFT", "AMZN"]
