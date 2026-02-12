@@ -41,5 +41,13 @@ REPORT_FOLDER = "reports/"
 LOGS_FOLDER = "logs/"
 DATABASE_PATH = "market_data.db"
 
+# --- Trusted News Sources (weighted higher in sentiment scoring) ---
+TRUSTED_NEWS_SOURCES = {
+    "reuters", "bloomberg", "associated press", "cnbc",
+    "the wall street journal", "financial times", "the new york times",
+    "bbc news", "techcrunch", "the verge", "ars technica", "wired",
+    "mit technology review",
+}
+
 # --- Schedule ---
 SCHEDULED_TIME = "08:00"
