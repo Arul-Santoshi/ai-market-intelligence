@@ -5,7 +5,7 @@ from datetime import datetime
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
 
-from config import DEFAULT_MODEL, GMAIL_EMAIL, SCHEDULED_TIME
+from config import DEFAULT_MODEL, EMAIL_RECIPIENTS, FEATURES, GMAIL_EMAIL, SCHEDULED_TIME
 from src.claude_analyzer import generate_insights, generate_summary
 from src.data_fetchers import (
     fetch_ai_news,
@@ -26,6 +26,23 @@ from src.sentiment_analyzer import analyze_ai_news_sentiment
 logger = logging.getLogger(__name__)
 
 
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
+def _step_result(status: str, duration: float, detail: str = "") -> dict:
+    """Build a step-status dict with timing info for the pipeline status map."""
+    return {
+        "status": status,
+        "duration_s": round(duration, 2),
+        "detail": detail,
+    }
+
+
+# ---------------------------------------------------------------------------
+# Daily pipeline
+# ---------------------------------------------------------------------------
+
 def run_daily_report(model: str = DEFAULT_MODEL) -> dict:
     """Execute the full daily pipeline.
 
@@ -39,6 +56,8 @@ def run_daily_report(model: str = DEFAULT_MODEL) -> dict:
         7. Persist to database + files
         8. Send email
 
+    Individual steps can be disabled via FEATURES in config.py.
+
     Returns:
         Dict mapping step names to rich status dicts with timing info.
         Includes a '_meta' key with overall pipeline metadata.
@@ -49,53 +68,80 @@ def run_daily_report(model: str = DEFAULT_MODEL) -> dict:
     logger.info("===== Starting daily report for %s =====", today)
 
     # 1 — Fetch data --------------------------------------------------------
-    t0 = time.monotonic()
-    try:
-        stock_data = fetch_stock_prices()
-        status["fetch_stocks"] = _step_result("success", time.monotonic() - t0, f"{len(stock_data)} tickers")
-        logger.info("Stocks fetched")
-    except Exception as exc:
+    if FEATURES.get("stocks", True):
+        t0 = time.monotonic()
+        try:
+            stock_data = fetch_stock_prices()
+            status["fetch_stocks"] = _step_result("success", time.monotonic() - t0, f"{len(stock_data)} tickers")
+            logger.info("Stocks fetched")
+        except Exception as exc:
+            stock_data = {}
+            status["fetch_stocks"] = _step_result("error", time.monotonic() - t0, str(exc))
+            logger.error("Stock fetch failed: %s", exc)
+    else:
         stock_data = {}
-        status["fetch_stocks"] = _step_result("error", time.monotonic() - t0, str(exc))
-        logger.error("Stock fetch failed: %s", exc)
+        status["fetch_stocks"] = _step_result("skipped", 0, "disabled by feature flag")
 
-    t0 = time.monotonic()
-    try:
-        news_data = fetch_ai_news()
-        status["fetch_news"] = _step_result("success", time.monotonic() - t0, f"{len(news_data)} articles")
-        logger.info("News fetched (%d articles)", len(news_data))
-    except Exception as exc:
+    if FEATURES.get("news", True):
+        t0 = time.monotonic()
+        try:
+            news_data = fetch_ai_news()
+            status["fetch_news"] = _step_result("success", time.monotonic() - t0, f"{len(news_data)} articles")
+            logger.info("News fetched (%d articles)", len(news_data))
+        except Exception as exc:
+            news_data = []
+            status["fetch_news"] = _step_result("error", time.monotonic() - t0, str(exc))
+            logger.error("News fetch failed: %s", exc)
+    else:
         news_data = []
-        status["fetch_news"] = _step_result("error", time.monotonic() - t0, str(exc))
-        logger.error("News fetch failed: %s", exc)
+        status["fetch_news"] = _step_result("skipped", 0, "disabled by feature flag")
 
-    t0 = time.monotonic()
-    try:
-        github_data = fetch_github_trending()
-        status["fetch_github"] = _step_result("success", time.monotonic() - t0, f"{len(github_data)} repos")
-        logger.info("GitHub trends fetched (%d repos)", len(github_data))
-    except Exception as exc:
+    if FEATURES.get("github", True):
+        t0 = time.monotonic()
+        try:
+            github_data = fetch_github_trending()
+            status["fetch_github"] = _step_result("success", time.monotonic() - t0, f"{len(github_data)} repos")
+            logger.info("GitHub trends fetched (%d repos)", len(github_data))
+        except Exception as exc:
+            github_data = []
+            status["fetch_github"] = _step_result("error", time.monotonic() - t0, str(exc))
+            logger.error("GitHub fetch failed: %s", exc)
+    else:
         github_data = []
-        status["fetch_github"] = _step_result("error", time.monotonic() - t0, str(exc))
-        logger.error("GitHub fetch failed: %s", exc)
+        status["fetch_github"] = _step_result("skipped", 0, "disabled by feature flag")
 
-    t0 = time.monotonic()
-    try:
-        economic_data = fetch_economic_indicators()
-        status["fetch_economic"] = _step_result("success", time.monotonic() - t0)
-        logger.info("Economic indicators fetched")
-    except Exception as exc:
+    if FEATURES.get("economic", True):
+        t0 = time.monotonic()
+        try:
+            economic_data = fetch_economic_indicators()
+            status["fetch_economic"] = _step_result("success", time.monotonic() - t0)
+            logger.info("Economic indicators fetched")
+        except Exception as exc:
+            economic_data = None
+            status["fetch_economic"] = _step_result("error", time.monotonic() - t0, str(exc))
+            logger.error("Economic fetch failed: %s", exc)
+    else:
         economic_data = None
-        status["fetch_economic"] = _step_result("error", time.monotonic() - t0, str(exc))
-        logger.error("Economic fetch failed: %s", exc)
+        status["fetch_economic"] = _step_result("skipped", 0, "disabled by feature flag")
 
     # 2 — Sentiment ----------------------------------------------------------
-    t0 = time.monotonic()
-    try:
-        sentiment_data = analyze_ai_news_sentiment(news_data)
-        status["sentiment"] = _step_result("success", time.monotonic() - t0, f"score: {sentiment_data.get('overall_sentiment', 0):.2f}")
-        logger.info("Sentiment analysis complete")
-    except Exception as exc:
+    if FEATURES.get("sentiment", True):
+        t0 = time.monotonic()
+        try:
+            sentiment_data = analyze_ai_news_sentiment(news_data)
+            status["sentiment"] = _step_result("success", time.monotonic() - t0, f"score: {sentiment_data.get('overall_sentiment', 0):.2f}")
+            logger.info("Sentiment analysis complete")
+        except Exception as exc:
+            sentiment_data = {
+                "overall_sentiment": 0.5,
+                "positive_count": 0,
+                "negative_count": 0,
+                "neutral_count": 0,
+                "articles_with_sentiment": [],
+            }
+            status["sentiment"] = _step_result("error", time.monotonic() - t0, str(exc))
+            logger.error("Sentiment analysis failed: %s", exc)
+    else:
         sentiment_data = {
             "overall_sentiment": 0.5,
             "positive_count": 0,
@@ -103,8 +149,7 @@ def run_daily_report(model: str = DEFAULT_MODEL) -> dict:
             "neutral_count": 0,
             "articles_with_sentiment": [],
         }
-        status["sentiment"] = _step_result("error", time.monotonic() - t0, str(exc))
-        logger.error("Sentiment analysis failed: %s", exc)
+        status["sentiment"] = _step_result("skipped", 0, "disabled by feature flag")
 
     # 3 — Yesterday's data ---------------------------------------------------
     t0 = time.monotonic()
@@ -135,17 +180,22 @@ def run_daily_report(model: str = DEFAULT_MODEL) -> dict:
         logger.error("Aggregation failed: %s", exc)
 
     # 5 — Claude insights ----------------------------------------------------
-    t0 = time.monotonic()
-    try:
-        insights = generate_insights(aggregated, comparison, model=model)
-        summary = generate_summary(aggregated, insights, comparison_data=comparison, model=model)
-        status["claude_analysis"] = _step_result("success", time.monotonic() - t0)
-        logger.info("Claude analysis complete")
-    except Exception as exc:
-        insights = "_Insights unavailable._"
-        summary = "_Summary unavailable._"
-        status["claude_analysis"] = _step_result("error", time.monotonic() - t0, str(exc))
-        logger.error("Claude analysis failed: %s", exc)
+    if FEATURES.get("claude", True):
+        t0 = time.monotonic()
+        try:
+            insights = generate_insights(aggregated, comparison, model=model)
+            summary = generate_summary(aggregated, insights, comparison_data=comparison, model=model)
+            status["claude_analysis"] = _step_result("success", time.monotonic() - t0)
+            logger.info("Claude analysis complete")
+        except Exception as exc:
+            insights = "_Insights unavailable._"
+            summary = "_Summary unavailable._"
+            status["claude_analysis"] = _step_result("error", time.monotonic() - t0, str(exc))
+            logger.error("Claude analysis failed: %s", exc)
+    else:
+        insights = "_Claude analysis disabled._"
+        summary = "_Summary disabled._"
+        status["claude_analysis"] = _step_result("skipped", 0, "disabled by feature flag")
 
     # 6 — Report -------------------------------------------------------------
     t0 = time.monotonic()
@@ -172,18 +222,24 @@ def run_daily_report(model: str = DEFAULT_MODEL) -> dict:
         logger.error("Database storage failed: %s", exc)
 
     # 8 — Email --------------------------------------------------------------
-    t0 = time.monotonic()
-    try:
-        if GMAIL_EMAIL and report_md:
-            sent = send_report_email(GMAIL_EMAIL, report_md, today)
-            s = "success" if sent else "error"
-            status["email"] = _step_result(s, time.monotonic() - t0, "" if sent else "send returned False")
-        else:
-            status["email"] = _step_result("skipped", time.monotonic() - t0, "no GMAIL_EMAIL or empty report")
-        logger.info("Email step: %s", status["email"]["status"])
-    except Exception as exc:
-        status["email"] = _step_result("error", time.monotonic() - t0, str(exc))
-        logger.error("Email send failed: %s", exc)
+    if FEATURES.get("email", True):
+        t0 = time.monotonic()
+        try:
+            recipients = EMAIL_RECIPIENTS
+            if recipients and report_md:
+                sent = send_report_email(recipients, report_md, today)
+                s = "success" if sent else "error"
+                detail = f"{len(recipients)} recipient(s)" if sent else "send returned False"
+                status["email"] = _step_result(s, time.monotonic() - t0, detail)
+            else:
+                reason = "no recipients" if not recipients else "empty report"
+                status["email"] = _step_result("skipped", time.monotonic() - t0, reason)
+            logger.info("Email step: %s", status["email"]["status"])
+        except Exception as exc:
+            status["email"] = _step_result("error", time.monotonic() - t0, str(exc))
+            logger.error("Email send failed: %s", exc)
+    else:
+        status["email"] = _step_result("skipped", 0, "disabled by feature flag")
 
     # Pipeline metadata
     total_elapsed = round(time.monotonic() - pipeline_start, 2)

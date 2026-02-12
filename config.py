@@ -49,5 +49,31 @@ TRUSTED_NEWS_SOURCES = {
     "mit technology review",
 }
 
+# --- Email Recipients ---
+# Comma-separated list of email addresses.  GMAIL_EMAIL is always included
+# as a fallback so existing single-recipient setups keep working.
+_raw_recipients = os.getenv("EMAIL_RECIPIENTS", "")
+EMAIL_RECIPIENTS: list[str] = [
+    addr.strip()
+    for addr in _raw_recipients.split(",")
+    if addr.strip()
+]
+# Ensure the primary Gmail address is always in the list
+if GMAIL_EMAIL and GMAIL_EMAIL not in EMAIL_RECIPIENTS:
+    EMAIL_RECIPIENTS.insert(0, GMAIL_EMAIL)
+
+# --- Feature Flags ---
+# Toggle individual pipeline steps on/off.  Each key maps to a boolean
+# that can be overridden via environment variables (e.g. FEATURE_STOCKS=0).
+FEATURES: dict[str, bool] = {
+    "stocks":    os.getenv("FEATURE_STOCKS", "1") == "1",
+    "news":      os.getenv("FEATURE_NEWS", "1") == "1",
+    "github":    os.getenv("FEATURE_GITHUB", "1") == "1",
+    "economic":  os.getenv("FEATURE_ECONOMIC", "1") == "1",
+    "sentiment": os.getenv("FEATURE_SENTIMENT", "1") == "1",
+    "claude":    os.getenv("FEATURE_CLAUDE", "1") == "1",
+    "email":     os.getenv("FEATURE_EMAIL", "1") == "1",
+}
+
 # --- Schedule ---
 SCHEDULED_TIME = "08:00"
