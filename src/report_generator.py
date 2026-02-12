@@ -11,21 +11,34 @@ logger = logging.getLogger(__name__)
 import re
 
 
+_REDUNDANT_TITLES = re.compile(
+    r"^\*{0,2}(executive\s+summary|market\s+analysis(\s+summary)?|key\s+insights"
+    r"|summary|overview)\*{0,2}\s*$",
+    re.IGNORECASE,
+)
+
+
 def _strip_claude_headers(text: str) -> str:
-    """Remove markdown headers that Claude adds to its own output.
+    """Remove markdown headers and redundant title lines from Claude output.
 
     Claude sometimes wraps its response in headers like '# Market Analysis'
-    or '## Executive Summary'. These clash with the report's own structure,
-    so we strip any leading H1/H2/H3 lines.
+    or '## Executive Summary'. We strip header markup entirely and also
+    remove lines that are just a bare section title (since the report
+    already has its own headings).
     """
     lines = text.strip().splitlines()
     cleaned = []
     for line in lines:
-        if re.match(r"^#{1,3}\s+", line):
-            # Keep the text content but drop the header markup
-            cleaned.append(re.sub(r"^#{1,3}\s+", "**", line) + "**")
-        else:
-            cleaned.append(line)
+        # Strip markdown header prefix
+        stripped = re.sub(r"^#{1,3}\s+", "", line).strip()
+        # Drop lines that are just a redundant section title
+        if _REDUNDANT_TITLES.match(stripped):
+            continue
+        # Drop blank bold-only title lines like "**Executive Summary**"
+        bare = stripped.strip("*").strip()
+        if _REDUNDANT_TITLES.match(bare):
+            continue
+        cleaned.append(line if not re.match(r"^#{1,3}\s+", line) else stripped)
     return "\n".join(cleaned)
 
 

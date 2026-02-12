@@ -298,21 +298,7 @@ def _render_tab_today():
         fig_gauge.update_layout(height=250, margin=dict(t=40, b=0, l=40, r=40))
         st.plotly_chart(fig_gauge, use_container_width=True)
 
-    # Top GitHub repos
-    if github_repos:
-        st.subheader("GitHub Trending AI Projects")
-        gh_df = pd.DataFrame(github_repos[:5])
-        if not gh_df.empty:
-            gh_df = gh_df.rename(columns={
-                "repo_name": "Repository",
-                "stars": "Stars",
-                "language": "Language",
-                "url": "URL",
-            })
-            display_cols = [c for c in ["Repository", "Stars", "Language", "URL"] if c in gh_df.columns]
-            st.dataframe(gh_df[display_cols], use_container_width=True, hide_index=True)
-
-    # Claude insights & full report
+    # Full report (includes GitHub Trending, Insights, etc.)
     st.subheader("Full Report")
     st.markdown(report["markdown_content"])
 

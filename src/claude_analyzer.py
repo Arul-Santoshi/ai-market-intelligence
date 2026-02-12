@@ -12,13 +12,16 @@ SYSTEM_PROMPT_INSIGHTS = (
     "AI news sentiment, GitHub trends, and economic indicators. Provide concise "
     "insights about: 1) What drove market movements today, 2) What's driving AI "
     "sector sentiment, 3) Emerging tech trends on GitHub, 4) Any notable anomalies "
-    "or risks. Format with clear sections and bullet points. Keep it to 2-3 "
-    "paragraphs max."
+    "or risks. Use bold text for sub-section labels. Keep it to 2-3 paragraphs max. "
+    "IMPORTANT: Do NOT include any markdown headers (no # or ## lines). Do NOT start "
+    "with a title like 'Market Analysis Summary'. Jump straight into the analysis."
 )
 
 SYSTEM_PROMPT_SUMMARY = (
     "Summarize today's market and tech landscape in 2-3 sentences for an executive "
-    "summary. Focus on: overall market direction, AI sector health, key tech trends."
+    "summary. Focus on: overall market direction, AI sector health, key tech trends. "
+    "IMPORTANT: Do NOT include any title or header. Do NOT start with 'Executive Summary'. "
+    "Just write the 2-3 sentence summary directly."
 )
 
 
