@@ -80,6 +80,23 @@ def init_database() -> sqlite3.Connection:
         )
     """)
 
+    # -- Indices for faster date-range queries ---------------------------------
+    cur.execute(
+        "CREATE INDEX IF NOT EXISTS idx_stock_prices_date ON stock_prices(date)"
+    )
+    cur.execute(
+        "CREATE INDEX IF NOT EXISTS idx_sentiment_scores_date ON sentiment_scores(date)"
+    )
+    cur.execute(
+        "CREATE INDEX IF NOT EXISTS idx_github_trends_date ON github_trends(date)"
+    )
+    cur.execute(
+        "CREATE INDEX IF NOT EXISTS idx_economic_data_date ON economic_data(date)"
+    )
+    cur.execute(
+        "CREATE INDEX IF NOT EXISTS idx_daily_reports_date ON daily_reports(date)"
+    )
+
     conn.commit()
     logger.info("Database initialised at %s", DATABASE_PATH)
     return conn

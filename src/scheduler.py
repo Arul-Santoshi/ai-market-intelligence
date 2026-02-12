@@ -138,8 +138,8 @@ def run_daily_report(model: str = DEFAULT_MODEL) -> dict:
     t0 = time.monotonic()
     try:
         insights = generate_insights(aggregated, comparison, model=model)
-        summary = generate_summary(aggregated, insights, model=model)
-        status["claude_analysis"] = "success"
+        summary = generate_summary(aggregated, insights, comparison_data=comparison, model=model)
+        status["claude_analysis"] = _step_result("success", time.monotonic() - t0)
         logger.info("Claude analysis complete")
     except Exception as exc:
         insights = "_Insights unavailable._"

@@ -18,7 +18,10 @@ SYSTEM_PROMPT_INSIGHTS = (
     "AI news sentiment, GitHub trends, and economic indicators. Provide concise "
     "insights about: 1) What drove market movements today, 2) What's driving AI "
     "sector sentiment, 3) Emerging tech trends on GitHub, 4) Any notable anomalies "
-    "or risks. Use bold text for sub-section labels. Keep it to 2-3 paragraphs max. "
+    "or risks. When day-over-day comparison data is provided, highlight what changed "
+    "since yesterday (e.g. 'NVDA reversed yesterday's 3% decline', 'sentiment "
+    "rebounded from 42% to 68%'). Use bold text for sub-section labels. Keep it to "
+    "2-3 paragraphs max. "
     "IMPORTANT: Do NOT include any markdown headers (no # or ## lines). Do NOT start "
     "with a title like 'Market Analysis Summary'. Jump straight into the analysis."
 )
@@ -26,6 +29,9 @@ SYSTEM_PROMPT_INSIGHTS = (
 SYSTEM_PROMPT_SUMMARY = (
     "Summarize today's market and tech landscape in 2-3 sentences for an executive "
     "summary. Focus on: overall market direction, AI sector health, key tech trends. "
+    "When day-over-day data is included, note the most significant change from "
+    "yesterday in one phrase (e.g. 'reversing yesterday's losses' or 'extending a "
+    "two-day rally'). "
     "IMPORTANT: Do NOT include any title or header. Do NOT start with 'Executive Summary'. "
     "Just write the 2-3 sentence summary directly."
 )
@@ -86,7 +92,7 @@ def _format_data_for_prompt(aggregated_data: dict, comparison_data: dict | None 
 
     # Day-over-day comparison
     if comparison_data:
-        parts.append("\n## Day-over-Day Changes")
+        parts.append("\n## Day-over-Day Changes (vs Yesterday)")
         stock_cmp = comparison_data.get("stocks", {})
         for ticker, cmp in stock_cmp.items():
             if cmp.get("change_percent") is not None:
@@ -102,8 +108,11 @@ def _format_data_for_prompt(aggregated_data: dict, comparison_data: dict | None 
             )
         gh_cmp = comparison_data.get("github", {})
         new_repos = gh_cmp.get("new_repos", [])
+        dropped_repos = gh_cmp.get("dropped_repos", [])
         if new_repos:
-            parts.append(f"- New trending repos: {', '.join(new_repos)}")
+            parts.append(f"- New trending repos: {', '.join(new_repos[:5])}")
+        if dropped_repos:
+            parts.append(f"- Dropped from trending: {', '.join(dropped_repos[:5])}")
 
     return "\n".join(parts)
 
@@ -167,15 +176,24 @@ def generate_insights(aggregated_data: dict, comparison_data: dict | None = None
         return f"_Claude insights unavailable due to an API error: {exc}_"
 
 
-def generate_summary(aggregated_data: dict, insights: str, model: str = DEFAULT_MODEL) -> str:
-    """Ask Claude for a short executive summary."""
+def generate_summary(
+    aggregated_data: dict,
+    insights: str,
+    comparison_data: dict | None = None,
+    model: str = DEFAULT_MODEL,
+) -> str:
+    """Ask Claude for a short executive summary.
+
+    Now also receives comparison_data so the summary can reference
+    day-over-day changes (e.g. 'reversing yesterday's losses').
+    """
     if not ANTHROPIC_API_KEY:
         logger.warning("ANTHROPIC_API_KEY not set — returning placeholder summary")
         return "_Executive summary unavailable (no API key configured)._"
 
     user_content = (
         f"Here is today's data:\n\n"
-        f"{_format_data_for_prompt(aggregated_data)}\n\n"
+        f"{_format_data_for_prompt(aggregated_data, comparison_data)}\n\n"
         f"And here are the detailed insights:\n\n{insights}"
     )
 

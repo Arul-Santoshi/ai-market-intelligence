@@ -85,6 +85,7 @@ def get_yesterday_stock_data() -> dict:
 # ---------------------------------------------------------------------------
 
 import re
+from difflib import SequenceMatcher
 
 # Patterns that indicate a PyPI / npm / package-release headline, not real news
 _JUNK_PATTERNS = [
@@ -94,6 +95,25 @@ _JUNK_PATTERNS = [
     re.compile(r"\b(released|changelog|patch notes)\b", re.IGNORECASE),
 ]
 _JUNK_SOURCES = {"pypi.org", "npmjs.com", "libraries.io", "sourceforge.net"}
+
+# Similarity threshold for duplicate headline detection (0-1).
+# Headlines scoring above this against an already-accepted headline are dropped.
+_DUPLICATE_SIMILARITY_THRESHOLD = 0.75
+
+
+def _is_duplicate_headline(headline: str, existing: list[str]) -> bool:
+    """Return True if *headline* is too similar to any already-accepted headline.
+
+    Uses SequenceMatcher for fast, token-order-aware fuzzy matching.
+    A threshold of 0.75 catches near-identical rewrites while keeping
+    genuinely different stories about the same topic.
+    """
+    normalized = headline.lower().strip()
+    for other in existing:
+        ratio = SequenceMatcher(None, normalized, other.lower().strip()).ratio()
+        if ratio >= _DUPLICATE_SIMILARITY_THRESHOLD:
+            return True
+    return False
 
 
 def _is_junk_article(headline: str, article: dict) -> bool:
@@ -133,10 +153,16 @@ def fetch_ai_news() -> list[dict]:
         )
 
         articles = []
+        accepted_headlines: list[str] = []
+        duplicates_dropped = 0
         for article in response.get("articles", []):
             headline = article.get("title", "")
             if not headline or _is_junk_article(headline, article):
                 continue
+            if _is_duplicate_headline(headline, accepted_headlines):
+                duplicates_dropped += 1
+                continue
+            accepted_headlines.append(headline)
             articles.append({
                 "headline": headline,
                 "source": article.get("source", {}).get("name", "Unknown"),
@@ -144,7 +170,10 @@ def fetch_ai_news() -> list[dict]:
                 "published_at": article.get("publishedAt", ""),
                 "description": article.get("description", ""),
             })
-        logger.info("Fetched %d AI news articles (after filtering)", len(articles))
+        logger.info(
+            "Fetched %d AI news articles (after filtering, %d duplicates dropped)",
+            len(articles), duplicates_dropped,
+        )
         return articles
 
     except Exception as exc:

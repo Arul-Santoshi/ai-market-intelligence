@@ -581,8 +581,48 @@ def _render_tab_trends():
 
 
 # ---------------------------------------------------------------------------
-# Tab 4 — Historical Reports Archive
+# Tab 4 — Historical Reports Archive (Calendar View)
 # ---------------------------------------------------------------------------
+
+import calendar as _cal
+
+
+def _render_month_calendar(year: int, month: int, available_set: set[str]):
+    """Render a clickable month calendar grid.
+
+    Days with a report are shown as green buttons; days without are
+    greyed-out labels.  Clicking a day sets session_state["archive_date"].
+    """
+    month_name = _cal.month_name[month]
+    st.markdown(f"#### {month_name} {year}")
+
+    # Weekday header row
+    header_cols = st.columns(7)
+    for i, day_name in enumerate(["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]):
+        header_cols[i].markdown(f"**{day_name}**")
+
+    # Calendar weeks
+    for week in _cal.monthcalendar(year, month):
+        cols = st.columns(7)
+        for i, day in enumerate(week):
+            if day == 0:
+                cols[i].write("")
+                continue
+            date_str = f"{year}-{month:02d}-{day:02d}"
+            if date_str in available_set:
+                # Green button for days with a report
+                if cols[i].button(
+                    f":green[{day}]",
+                    key=f"cal_{date_str}",
+                    use_container_width=True,
+                ):
+                    st.session_state["archive_date"] = date_str
+            else:
+                cols[i].markdown(
+                    f"<div style='text-align:center;color:#aaa;padding:4px 0'>{day}</div>",
+                    unsafe_allow_html=True,
+                )
+
 
 def _render_tab_archive():
     if not _db_available():
@@ -594,46 +634,86 @@ def _render_tab_archive():
         st.info("No archived reports found.")
         return
 
-    # Date picker
     available_dates = [r["date"] for r in all_reports]
-    col_pick, col_search = st.columns([1, 2])
-    with col_pick:
-        selected_date = st.date_input(
-            "Select a date",
-            value=datetime.strptime(available_dates[0], "%Y-%m-%d"),
-            min_value=datetime.strptime(available_dates[-1], "%Y-%m-%d"),
-            max_value=datetime.strptime(available_dates[0], "%Y-%m-%d"),
-        )
-    with col_search:
-        search_term = st.text_input("Search reports by keyword", "")
+    available_set = set(available_dates)
+    summaries = {r["date"]: r["summary"] for r in all_reports}
 
-    # Report list
-    st.subheader("Available Reports")
-    for r in all_reports:
-        summary_preview = (r["summary"] or "")[:120]
-        if search_term:
-            combined = f"{r['date']} {r.get('summary', '')}".lower()
-            if search_term.lower() not in combined:
-                continue
-        if st.button(f"{r['date']}  ---  {summary_preview}...", key=f"report_{r['date']}"):
-            selected_date = datetime.strptime(r["date"], "%Y-%m-%d")
+    # Month/year selector + search
+    col_nav, col_search = st.columns([1, 2])
+
+    # Determine default month from latest report
+    latest = datetime.strptime(available_dates[0], "%Y-%m-%d")
+    oldest = datetime.strptime(available_dates[-1], "%Y-%m-%d")
+
+    with col_nav:
+        # Build month options from oldest to latest
+        month_options: list[str] = []
+        cursor = oldest.replace(day=1)
+        end_month = latest.replace(day=1)
+        while cursor <= end_month:
+            month_options.append(cursor.strftime("%Y-%m"))
+            if cursor.month == 12:
+                cursor = cursor.replace(year=cursor.year + 1, month=1)
+            else:
+                cursor = cursor.replace(month=cursor.month + 1)
+        month_options.reverse()  # newest first
+
+        selected_month = st.selectbox(
+            "Month",
+            month_options,
+            index=0,
+            format_func=lambda m: datetime.strptime(m, "%Y-%m").strftime("%B %Y"),
+        )
+
+    with col_search:
+        search_term = st.text_input("Search reports by keyword", "", key="archive_search")
+
+    # Render calendar grid
+    sel_year, sel_month = (int(x) for x in selected_month.split("-"))
+    _render_month_calendar(sel_year, sel_month, available_set)
+
+    # Legend
+    st.caption(":green[Green] = report available  |  Gray = no report")
+
+    # If user searched, show matching reports as a list below the calendar
+    if search_term:
+        st.divider()
+        st.subheader("Search Results")
+        matches = [
+            r for r in all_reports
+            if search_term.lower() in f"{r['date']} {r.get('summary', '')}".lower()
+        ]
+        if matches:
+            for r in matches:
+                preview = (r["summary"] or "")[:120]
+                if st.button(f"{r['date']} -- {preview}...", key=f"search_{r['date']}"):
+                    st.session_state["archive_date"] = r["date"]
+        else:
+            st.info(f"No reports matching '{search_term}'.")
 
     # Display selected report
-    st.divider()
-    date_str = selected_date.strftime("%Y-%m-%d") if hasattr(selected_date, "strftime") else str(selected_date)
-    report = _get_report_by_date(date_str)
-    if report:
-        st.subheader(f"Report for {date_str}")
-        st.markdown(report["markdown_content"])
-        st.download_button(
-            label="Download Report (.md)",
-            data=report["markdown_content"],
-            file_name=f"ai_market_report_{date_str}.md",
-            mime="text/markdown",
-            key=f"download_archive_{date_str}",
-        )
-    else:
-        st.info(f"No report found for {date_str}.")
+    selected_date_str = st.session_state.get("archive_date")
+    if selected_date_str:
+        st.divider()
+        report = _get_report_by_date(selected_date_str)
+        if report:
+            st.subheader(f"Report for {selected_date_str}")
+
+            # Show summary badge
+            summary_text = summaries.get(selected_date_str, "")
+            if summary_text:
+                st.info(summary_text)
+
+            st.markdown(report["markdown_content"])
+            st.download_button(
+                label="Download Report (.md)",
+                data=report["markdown_content"],
+                file_name=f"ai_market_report_{selected_date_str}.md",
+                mime="text/markdown",
+                key=f"download_archive_{selected_date_str}",
+            )
+        else:
+            st.info(f"No report found for {selected_date_str}.")
 
 
 # ---------------------------------------------------------------------------
