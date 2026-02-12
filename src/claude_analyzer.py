@@ -3,7 +3,7 @@ import logging
 
 import anthropic
 
-from config import ANTHROPIC_API_KEY
+from config import ANTHROPIC_API_KEY, CLAUDE_MODEL
 
 logger = logging.getLogger(__name__)
 
@@ -12,7 +12,10 @@ SYSTEM_PROMPT_INSIGHTS = (
     "AI news sentiment, GitHub trends, and economic indicators. Provide concise "
     "insights about: 1) What drove market movements today, 2) What's driving AI "
     "sector sentiment, 3) Emerging tech trends on GitHub, 4) Any notable anomalies "
-    "or risks. Use bold text for sub-section labels. Keep it to 2-3 paragraphs max. "
+    "or risks. When day-over-day comparison data is provided, highlight what changed "
+    "since yesterday (e.g. 'NVDA reversed yesterday's 3% decline', 'sentiment "
+    "rebounded from 42% to 68%'). Use bold text for sub-section labels. Keep it to "
+    "2-3 paragraphs max. "
     "IMPORTANT: Do NOT include any markdown headers (no # or ## lines). Do NOT start "
     "with a title like 'Market Analysis Summary'. Jump straight into the analysis."
 )
@@ -20,6 +23,9 @@ SYSTEM_PROMPT_INSIGHTS = (
 SYSTEM_PROMPT_SUMMARY = (
     "Summarize today's market and tech landscape in 2-3 sentences for an executive "
     "summary. Focus on: overall market direction, AI sector health, key tech trends. "
+    "When day-over-day data is included, note the most significant change from "
+    "yesterday in one phrase (e.g. 'reversing yesterday's losses' or 'extending a "
+    "two-day rally'). "
     "IMPORTANT: Do NOT include any title or header. Do NOT start with 'Executive Summary'. "
     "Just write the 2-3 sentence summary directly."
 )
@@ -80,7 +86,7 @@ def _format_data_for_prompt(aggregated_data: dict, comparison_data: dict | None 
 
     # Day-over-day comparison
     if comparison_data:
-        parts.append("\n## Day-over-Day Changes")
+        parts.append("\n## Day-over-Day Changes (vs Yesterday)")
         stock_cmp = comparison_data.get("stocks", {})
         for ticker, cmp in stock_cmp.items():
             if cmp.get("change_percent") is not None:
@@ -96,8 +102,11 @@ def _format_data_for_prompt(aggregated_data: dict, comparison_data: dict | None 
             )
         gh_cmp = comparison_data.get("github", {})
         new_repos = gh_cmp.get("new_repos", [])
+        dropped_repos = gh_cmp.get("dropped_repos", [])
         if new_repos:
-            parts.append(f"- New trending repos: {', '.join(new_repos)}")
+            parts.append(f"- New trending repos: {', '.join(new_repos[:5])}")
+        if dropped_repos:
+            parts.append(f"- Dropped from trending: {', '.join(dropped_repos[:5])}")
 
     return "\n".join(parts)
 
@@ -113,41 +122,45 @@ def generate_insights(aggregated_data: dict, comparison_data: dict | None = None
     try:
         client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
         message = client.messages.create(
-            model="claude-3-haiku-20240307",
+            model=CLAUDE_MODEL,
             max_tokens=1000,
             system=SYSTEM_PROMPT_INSIGHTS,
             messages=[{"role": "user", "content": user_content}],
         )
         text = message.content[0].text
-        logger.info("Claude insights generated (%d chars)", len(text))
+        logger.info("Claude insights generated (%d chars, model=%s)", len(text), CLAUDE_MODEL)
         return text
     except Exception as exc:
         logger.error("Claude API call failed (insights): %s", exc)
         return "_Claude insights unavailable due to an API error._"
 
 
-def generate_summary(aggregated_data: dict, insights: str) -> str:
-    """Ask Claude for a short executive summary."""
+def generate_summary(aggregated_data: dict, insights: str, comparison_data: dict | None = None) -> str:
+    """Ask Claude for a short executive summary.
+
+    Now also receives comparison_data so the summary can reference
+    day-over-day changes (e.g. 'reversing yesterday's losses').
+    """
     if not ANTHROPIC_API_KEY:
         logger.warning("ANTHROPIC_API_KEY not set — returning placeholder summary")
         return "_Executive summary unavailable (no API key configured)._"
 
     user_content = (
         f"Here is today's data:\n\n"
-        f"{_format_data_for_prompt(aggregated_data)}\n\n"
+        f"{_format_data_for_prompt(aggregated_data, comparison_data)}\n\n"
         f"And here are the detailed insights:\n\n{insights}"
     )
 
     try:
         client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
         message = client.messages.create(
-            model="claude-3-haiku-20240307",
+            model=CLAUDE_MODEL,
             max_tokens=200,
             system=SYSTEM_PROMPT_SUMMARY,
             messages=[{"role": "user", "content": user_content}],
         )
         text = message.content[0].text
-        logger.info("Claude summary generated (%d chars)", len(text))
+        logger.info("Claude summary generated (%d chars, model=%s)", len(text), CLAUDE_MODEL)
         return text
     except Exception as exc:
         logger.error("Claude API call failed (summary): %s", exc)

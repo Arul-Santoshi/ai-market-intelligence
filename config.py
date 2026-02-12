@@ -5,6 +5,7 @@ load_dotenv(override=True)
 
 # --- API Keys ---
 ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY", "")
+CLAUDE_MODEL = os.getenv("CLAUDE_MODEL", "claude-3-haiku-20240307")
 NEWSAPI_KEY = os.getenv("NEWSAPI_KEY", "")
 GMAIL_EMAIL = os.getenv("GMAIL_EMAIL", "")
 GMAIL_APP_PASSWORD = os.getenv("GMAIL_APP_PASSWORD", "")

@@ -143,7 +143,7 @@ def run_daily_report() -> dict:
     t0 = time.monotonic()
     try:
         insights = generate_insights(aggregated, comparison)
-        summary = generate_summary(aggregated, insights)
+        summary = generate_summary(aggregated, insights, comparison)
         status["claude_analysis"] = _step_result("success", time.monotonic() - t0)
         logger.info("Claude analysis complete")
     except Exception as exc:
