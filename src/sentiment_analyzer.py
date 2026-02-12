@@ -85,6 +85,7 @@ def analyze_ai_news_sentiment(articles: list[dict]) -> dict:
         neutral_articles = [
             {
                 "headline": a["headline"],
+                "url": a.get("url", ""),
                 "sentiment_label": "neutral",
                 "sentiment_score": 0.5,
             }
@@ -136,6 +137,7 @@ def analyze_ai_news_sentiment(articles: list[dict]) -> dict:
 
             articles_with_sentiment.append({
                 "headline": headline,
+                "url": article.get("url", ""),
                 "sentiment_label": label,
                 "sentiment_score": round(normalized_score, 4),
             })
@@ -148,6 +150,7 @@ def analyze_ai_news_sentiment(articles: list[dict]) -> dict:
             logger.error("Sentiment analysis failed for headline: %s", exc)
             articles_with_sentiment.append({
                 "headline": headline,
+                "url": article.get("url", ""),
                 "sentiment_label": "neutral",
                 "sentiment_score": 0.5,
             })

@@ -120,7 +120,10 @@ def generate_markdown_report(
         for a in articles:
             label = a.get("sentiment_label", "neutral")
             emoji = {"positive": "+", "negative": "-", "neutral": "~"}.get(label, "~")
-            lines.append(f"- [{emoji}] **{a['headline']}**")
+            headline = a["headline"]
+            url = a.get("url", "")
+            display = f"[{headline}]({url})" if url else headline
+            lines.append(f"- [{emoji}] **{display}**")
         lines.append("")
 
     # ── GitHub Trending AI Projects ─────────────────────────────────────
