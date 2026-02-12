@@ -9,7 +9,10 @@ import plotly.express as px
 import plotly.graph_objects as go
 import streamlit as st
 
-from config import AVAILABLE_MODELS, DATABASE_PATH, DEFAULT_MODEL, GMAIL_EMAIL, LOGS_FOLDER, SCHEDULED_TIME
+from config import (
+    AVAILABLE_MODELS, DATABASE_PATH, DEFAULT_MODEL,
+    EMAIL_RECIPIENTS, FEATURES, GMAIL_EMAIL, LOGS_FOLDER, SCHEDULED_TIME,
+)
 
 # ---------------------------------------------------------------------------
 # Page config (must be first Streamlit call)
@@ -253,7 +256,31 @@ def _render_sidebar():
     # Next scheduled run
     st.sidebar.subheader("Schedule")
     st.sidebar.write(f"**Next run:** Daily at {SCHEDULED_TIME}")
-    st.sidebar.write(f"**Email recipient:** {GMAIL_EMAIL or 'Not configured'}")
+
+    # Email recipients
+    if EMAIL_RECIPIENTS:
+        st.sidebar.write(f"**Email recipients:** {len(EMAIL_RECIPIENTS)}")
+        with st.sidebar.expander("Show recipients"):
+            for addr in EMAIL_RECIPIENTS:
+                st.sidebar.caption(addr)
+    else:
+        st.sidebar.write("**Email recipients:** Not configured")
+
+    # Feature flags
+    with st.sidebar.expander("Feature Flags"):
+        _flag_labels = {
+            "stocks": "Stock Prices",
+            "news": "AI News",
+            "github": "GitHub Trends",
+            "economic": "Economic Data",
+            "sentiment": "Sentiment Analysis",
+            "claude": "Claude Insights",
+            "email": "Email Delivery",
+        }
+        for key, label in _flag_labels.items():
+            enabled = FEATURES.get(key, True)
+            icon = "\u2705" if enabled else "\u274c"
+            st.caption(f"{icon} {label}")
 
     # Run report now (with step-by-step progress)
     if st.sidebar.button("Run Report Now"):
@@ -261,7 +288,11 @@ def _render_sidebar():
             try:
                 from src.scheduler import run_daily_report
                 status = run_daily_report(model=selected_model)
-                failed = [k for k, v in status.items() if v != "success"]
+                # Check for errors (status values are dicts with a "status" key)
+                failed = [
+                    k for k, v in status.items()
+                    if k != "_meta" and isinstance(v, dict) and v.get("status") == "error"
+                ]
                 if failed:
                     labels = [STEP_LABELS.get(k, k) for k in failed]
                     st.sidebar.warning(f"Completed with issues: {', '.join(labels)}")
