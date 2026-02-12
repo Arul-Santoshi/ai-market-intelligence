@@ -28,6 +28,24 @@ TICKER_NAMES = {
     "AMZN": "AMZN",
 }
 
+# Friendly labels for pipeline steps (used by status display)
+STEP_LABELS = {
+    "fetch_stocks": "Stock Prices",
+    "fetch_news": "AI News",
+    "fetch_github": "GitHub Trends",
+    "fetch_economic": "Economic Indicators",
+    "sentiment": "Sentiment Analysis",
+    "load_yesterday": "Yesterday's Data",
+    "aggregate": "Data Aggregation",
+    "claude_analysis": "Claude AI Insights",
+    "report": "Report Generation",
+    "database": "Database Storage",
+    "email": "Email Delivery",
+}
+
+# Ordered list of step keys for consistent display
+_STEP_ORDER = list(STEP_LABELS.keys())
+
 
 # ---------------------------------------------------------------------------
 # Database helpers (lightweight, no heavy imports)
@@ -151,8 +169,74 @@ def _get_db_info():
     return dict(row) if row else {}
 
 
+@st.cache_data(ttl=300)
+def _get_report_created_at(date_str: str) -> str | None:
+    """Return the created_at timestamp for a report date."""
+    conn = _db_connect()
+    cur = conn.cursor()
+    cur.execute("SELECT created_at FROM daily_reports WHERE date = ?", (date_str,))
+    row = cur.fetchone()
+    conn.close()
+    return row["created_at"] if row else None
+
+
 # ---------------------------------------------------------------------------
-# Sidebar — Settings (Tab 5)
+# Status display helpers
+# ---------------------------------------------------------------------------
+
+def _status_icon(status: str) -> str:
+    """Return an emoji icon for a step status."""
+    return {
+        "success": "\u2705",   # green check
+        "error": "\u274C",     # red X
+        "skipped": "\u23ED",   # skip icon
+    }.get(status, "\u2753")    # question mark
+
+
+def _render_pipeline_status(status_dict: dict):
+    """Render a step-by-step pipeline status table inside a Streamlit container."""
+    meta = status_dict.get("_meta", {})
+    completed_at = meta.get("completed_at", "")
+    total_s = meta.get("total_duration_s", 0)
+
+    if completed_at:
+        try:
+            ts = datetime.fromisoformat(completed_at)
+            st.caption(f"Completed at {ts.strftime('%I:%M:%S %p')} ({total_s:.1f}s total)")
+        except ValueError:
+            st.caption(f"Total: {total_s:.1f}s")
+
+    for key in _STEP_ORDER:
+        entry = status_dict.get(key)
+        if entry is None:
+            continue
+
+        # Handle both new rich dicts and legacy string values
+        if isinstance(entry, dict):
+            s = entry.get("status", "?")
+            dur = entry.get("duration_s", 0)
+            detail = entry.get("detail", "")
+        else:
+            # Legacy: plain string status
+            s = "success" if entry == "success" else "error"
+            dur = 0
+            detail = "" if entry == "success" else entry
+
+        icon = _status_icon(s)
+        label = STEP_LABELS.get(key, key)
+        time_str = f"{dur:.1f}s" if dur else ""
+
+        line = f"{icon} **{label}**"
+        if time_str:
+            line += f"  ({time_str})"
+        if detail and s != "success":
+            line += f" — {detail}"
+
+        st.write(line)
+
+
+# ---------------------------------------------------------------------------
+# Sidebar — Settings
 # ---------------------------------------------------------------------------
 
 def _render_sidebar():
@@ -163,15 +247,27 @@ def _render_sidebar():
     st.sidebar.write(f"**Next run:** Daily at {SCHEDULED_TIME}")
     st.sidebar.write(f"**Email recipient:** {GMAIL_EMAIL or 'Not configured'}")
 
-    # Run report now
+    # Run report now (with step-by-step progress)
     if st.sidebar.button("Run Report Now"):
         with st.sidebar.status("Running daily report...", expanded=True):
             try:
                 from src.scheduler import run_daily_report
                 status = run_daily_report()
-                failed = [k for k, v in status.items() if v != "success"]
+
+                # Persist status in session state for Tab 1 display
+                st.session_state["last_pipeline_status"] = status
+
+                # Show step-by-step results in sidebar
+                _render_pipeline_status(status)
+
+                # Summary verdict
+                failed = [
+                    k for k, v in status.items()
+                    if k != "_meta" and isinstance(v, dict) and v.get("status") == "error"
+                ]
                 if failed:
-                    st.sidebar.warning(f"Completed with issues: {', '.join(failed)}")
+                    labels = [STEP_LABELS.get(k, k) for k in failed]
+                    st.sidebar.warning(f"Completed with issues: {', '.join(labels)}")
                 else:
                     st.sidebar.success("Report generated successfully!")
                 st.cache_data.clear()
@@ -215,8 +311,8 @@ def _render_sidebar():
     if _db_available():
         info = _get_db_info()
         st.sidebar.write(f"**Reports:** {info.get('cnt', 0)}")
-        st.sidebar.write(f"**Oldest:** {info.get('oldest', '—')}")
-        st.sidebar.write(f"**Newest:** {info.get('newest', '—')}")
+        st.sidebar.write(f"**Oldest:** {info.get('oldest', '---')}")
+        st.sidebar.write(f"**Newest:** {info.get('newest', '---')}")
     else:
         st.sidebar.info("No database found yet.")
 
@@ -255,6 +351,28 @@ def _render_tab_today():
         st.info("No report for today yet. Click **Run Report Now** in the sidebar or wait for the scheduled run.")
         return
 
+    # Data freshness badge
+    created_at = _get_report_created_at(today)
+    if created_at:
+        try:
+            ts = datetime.fromisoformat(created_at)
+            elapsed = datetime.now() - ts
+            if elapsed.total_seconds() < 3600:
+                age = f"{int(elapsed.total_seconds() / 60)} min ago"
+            elif elapsed.total_seconds() < 86400:
+                age = f"{elapsed.total_seconds() / 3600:.1f} hrs ago"
+            else:
+                age = ts.strftime("%b %d, %I:%M %p")
+            st.caption(f"Last updated: {ts.strftime('%I:%M %p')} ({age})")
+        except (ValueError, TypeError):
+            pass
+
+    # Pipeline status expander (shows last run's step-by-step results)
+    last_status = st.session_state.get("last_pipeline_status")
+    if last_status:
+        with st.expander("Pipeline Status", expanded=False):
+            _render_pipeline_status(last_status)
+
     # Key metrics row
     st.subheader("Key Metrics")
     cols = st.columns(len(stocks) + 1)  # +1 for sentiment
@@ -264,7 +382,7 @@ def _render_tab_today():
         delta_color = "normal"  # green for positive, red for negative
         cols[i].metric(
             label=name,
-            value=f"${s['price']:,.2f}" if s["price"] else "—",
+            value=f"${s['price']:,.2f}" if s["price"] else "---",
             delta=f"{change:+.2f}%",
         )
     # Sentiment metric
@@ -353,12 +471,12 @@ def _render_tab_compare():
         else:
             change = None
             change_pct = None
-            direction = "—"
+            direction = "---"
         rows.append({
             "Ticker": name,
-            "Today": f"${today_price:,.2f}" if today_price is not None else "—",
-            "Yesterday": f"${yesterday_price:,.2f}" if yesterday_price is not None else "—",
-            "Change": f"{change_pct:+.2f}%" if change_pct is not None else "—",
+            "Today": f"${today_price:,.2f}" if today_price is not None else "---",
+            "Yesterday": f"${yesterday_price:,.2f}" if yesterday_price is not None else "---",
+            "Change": f"{change_pct:+.2f}%" if change_pct is not None else "---",
             "Direction": direction,
         })
 
@@ -369,14 +487,14 @@ def _render_tab_compare():
     sent_cols = st.columns(3)
     t_sent = sent_today["overall_sentiment"] if sent_today and sent_today["overall_sentiment"] else None
     y_sent = sent_yesterday["overall_sentiment"] if sent_yesterday and sent_yesterday["overall_sentiment"] else None
-    sent_cols[0].metric("Today", f"{t_sent:.0%}" if t_sent is not None else "—")
-    sent_cols[1].metric("Yesterday", f"{y_sent:.0%}" if y_sent is not None else "—")
+    sent_cols[0].metric("Today", f"{t_sent:.0%}" if t_sent is not None else "---")
+    sent_cols[1].metric("Yesterday", f"{y_sent:.0%}" if y_sent is not None else "---")
     if t_sent is not None and y_sent is not None:
         diff = t_sent - y_sent
         label = "improved" if diff > 0 else "declined"
         sent_cols[2].metric("Change", f"{diff:+.1%}", delta=label)
     else:
-        sent_cols[2].metric("Change", "—")
+        sent_cols[2].metric("Change", "---")
 
     # GitHub comparison
     st.subheader("GitHub Trending")
@@ -500,7 +618,7 @@ def _render_tab_archive():
             combined = f"{r['date']} {r.get('summary', '')}".lower()
             if search_term.lower() not in combined:
                 continue
-        if st.button(f"{r['date']}  —  {summary_preview}...", key=f"report_{r['date']}"):
+        if st.button(f"{r['date']}  ---  {summary_preview}...", key=f"report_{r['date']}"):
             selected_date = datetime.strptime(r["date"], "%Y-%m-%d")
 
     # Display selected report
@@ -548,5 +666,3 @@ def main():
 
 
 main()
-
-print("Phase 4 complete! Dashboard is ready. Run 'streamlit run app.py' to view.")

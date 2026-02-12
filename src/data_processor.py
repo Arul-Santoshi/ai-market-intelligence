@@ -16,8 +16,26 @@ def aggregate_data(
     economic_data: dict | None,
 ) -> dict:
     """Combine all data sources into a single structured payload."""
+    now = datetime.now().isoformat()
+
+    # Build fetch-time map from whatever timestamps each source provides
+    stock_ts = None
+    for info in stock_data.values():
+        if info and "timestamp" in info:
+            stock_ts = info["timestamp"]
+            break
+
+    fetch_timestamps = {
+        "stocks": stock_ts or now,
+        "news": now,
+        "github": now,
+        "economic": (economic_data or {}).get("last_updated", now),
+        "sentiment": now,
+        "aggregated_at": now,
+    }
+
     return {
-        "timestamp": datetime.now().isoformat(),
+        "timestamp": now,
         "stocks": stock_data,
         "news": {
             "article_count": len(news_data),
@@ -29,6 +47,7 @@ def aggregate_data(
             "repos": github_data,
         },
         "economic": economic_data,
+        "fetch_timestamps": fetch_timestamps,
     }
 
 

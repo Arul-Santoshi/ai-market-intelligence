@@ -325,6 +325,34 @@ def get_yesterday_data() -> dict | None:
     }
 
 
+def get_historical_stock_volatility(days: int = 30) -> dict[str, list[float]]:
+    """Return recent change_percent values grouped by ticker for volatility calc.
+
+    Args:
+        days: How many days of history to pull. Defaults to 30.
+
+    Returns:
+        Dict mapping ticker symbols to lists of change_percent values,
+        e.g. ``{"^GSPC": [-0.12, 0.45, ...], "NVDA": [1.2, -2.3, ...]}``.
+    """
+    since = (datetime.now() - timedelta(days=days)).strftime("%Y-%m-%d")
+    conn = _connect()
+    cur = conn.cursor()
+    cur.execute(
+        "SELECT ticker, change_percent FROM stock_prices "
+        "WHERE date >= ? AND change_percent IS NOT NULL ORDER BY date",
+        (since,),
+    )
+    rows = cur.fetchall()
+    conn.close()
+
+    result: dict[str, list[float]] = {}
+    for row in rows:
+        ticker = row["ticker"]
+        result.setdefault(ticker, []).append(row["change_percent"])
+    return result
+
+
 def get_report_by_date(date: str) -> str | None:
     """Return the markdown report for *date* (YYYY-MM-DD), or None."""
     conn = _connect()

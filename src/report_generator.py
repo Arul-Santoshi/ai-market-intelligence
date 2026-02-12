@@ -1,5 +1,6 @@
 import json
 import logging
+import math
 import os
 from datetime import datetime
 
@@ -206,7 +207,7 @@ def generate_markdown_report(
 
     # ── Notable Anomalies ───────────────────────────────────────────────
     lines.append("## Notable Anomalies")
-    anomalies = _detect_anomalies(aggregated_data)
+    anomalies = _detect_anomalies(aggregated_data, comparison_data)
     if anomalies:
         for a in anomalies:
             lines.append(f"- {a}")
@@ -224,24 +225,121 @@ def generate_markdown_report(
     return "\n".join(lines)
 
 
-def _detect_anomalies(aggregated_data: dict) -> list[str]:
-    """Flag large stock moves or extreme sentiment."""
+# Fallback thresholds used when not enough historical data for volatility calc
+_INDEX_TICKERS = {"^GSPC", "^IXIC"}
+_FALLBACK_THRESHOLD_INDEX = 1.5   # indices are less volatile
+_FALLBACK_THRESHOLD_STOCK = 3.0   # individual stocks swing more
+
+
+def _detect_anomalies(
+    aggregated_data: dict,
+    comparison_data: dict | None = None,
+) -> list[str]:
+    """Flag unusual stock moves, sentiment extremes, correlated moves, and shifts.
+
+    Uses historical volatility from the database when available (>= 5 data
+    points).  Falls back to calibrated flat thresholds for indices vs
+    individual stocks when history is too short.
+    """
     flags: list[str] = []
+
+    # --- Load historical volatility (best-effort) -------------------------
+    try:
+        from src.database_handler import get_historical_stock_volatility
+        hist = get_historical_stock_volatility(30)
+    except Exception:
+        hist = {}
+
+    # --- Per-ticker anomaly detection -------------------------------------
     stocks = aggregated_data.get("stocks", {})
+    display_names = {
+        "^GSPC": "S&P 500", "^IXIC": "NASDAQ",
+        "NVDA": "NVDA", "MSFT": "MSFT", "AMZN": "AMZN",
+    }
+
+    up_count = 0
+    down_count = 0
+
     for ticker, info in stocks.items():
         if info is None:
             continue
-        pct = abs(info.get("change_percent", 0))
-        if pct >= 2.0:
-            direction = "gain" if info["change_percent"] > 0 else "drop"
-            flags.append(f"**{ticker}** had a significant {direction} of {info['change_percent']}%")
+        change = info.get("change_percent", 0)
+        abs_change = abs(change)
+        direction = "gain" if change > 0 else "drop"
+        name = display_names.get(ticker, ticker)
 
+        history = hist.get(ticker, [])
+
+        if len(history) >= 5:
+            # Volatility-based detection: flag moves > 1.5 standard deviations
+            mean = sum(history) / len(history)
+            variance = sum((x - mean) ** 2 for x in history) / len(history)
+            std = math.sqrt(variance) if variance > 0 else 0.0
+
+            if std > 0:
+                sigma = abs(change - mean) / std
+                if sigma >= 1.5:
+                    flags.append(
+                        f"**{name}** had a significant {direction} of "
+                        f"{change:+.2f}% ({sigma:.1f} sigma)"
+                    )
+            elif abs_change >= 1.0:
+                # Zero std (all identical history) but still moved
+                flags.append(
+                    f"**{name}** had a significant {direction} of {change:+.2f}%"
+                )
+        else:
+            # Fallback: calibrated flat thresholds
+            threshold = (
+                _FALLBACK_THRESHOLD_INDEX if ticker in _INDEX_TICKERS
+                else _FALLBACK_THRESHOLD_STOCK
+            )
+            if abs_change >= threshold:
+                flags.append(
+                    f"**{name}** had a significant {direction} of {change:+.2f}%"
+                )
+
+        # Track direction for correlated-move check
+        if change > 1.0:
+            up_count += 1
+        elif change < -1.0:
+            down_count += 1
+
+    # --- Correlated move detection ----------------------------------------
+    total_tracked = len([t for t, i in stocks.items() if i is not None])
+    if total_tracked >= 3:
+        if up_count >= 3:
+            flags.append(
+                f"Broad market rally: {up_count}/{total_tracked} tracked "
+                f"assets gained > 1%"
+            )
+        elif down_count >= 3:
+            flags.append(
+                f"Broad market selloff: {down_count}/{total_tracked} tracked "
+                f"assets dropped > 1%"
+            )
+
+    # --- Sentiment anomalies ----------------------------------------------
     sentiment = aggregated_data.get("sentiment", {})
     overall = sentiment.get("overall_sentiment", 0.5)
     if overall >= 0.85:
         flags.append("AI news sentiment is unusually positive today")
     elif overall <= 0.25:
         flags.append("AI news sentiment is unusually negative today")
+
+    # Sentiment shift from yesterday
+    if comparison_data:
+        sent_cmp = comparison_data.get("sentiment", {})
+        yesterday_sent = sent_cmp.get("yesterday_sentiment")
+        today_sent = sent_cmp.get("today_sentiment", overall)
+        if yesterday_sent is not None:
+            shift = today_sent - yesterday_sent
+            if abs(shift) >= 0.15:
+                direction = "surged" if shift > 0 else "dropped"
+                flags.append(
+                    f"Sentiment {direction} sharply vs yesterday "
+                    f"({yesterday_sent:.0%} -> {today_sent:.0%})"
+                )
 
     return flags
 
