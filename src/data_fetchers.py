@@ -84,6 +84,35 @@ def get_yesterday_stock_data() -> dict:
 # AI news
 # ---------------------------------------------------------------------------
 
+import re
+
+# Patterns that indicate a PyPI / npm / package-release headline, not real news
+_JUNK_PATTERNS = [
+    re.compile(r"^\S+\s+\d+\.\d+\.\d+", re.IGNORECASE),        # "some-pkg 1.2.3"
+    re.compile(r"^v?\d+\.\d+", re.IGNORECASE),                   # "v1.2.0 released"
+    re.compile(r"pypi\.org|npmjs\.com|rubygems\.org", re.IGNORECASE),
+    re.compile(r"\b(released|changelog|patch notes)\b", re.IGNORECASE),
+]
+_JUNK_SOURCES = {"pypi.org", "npmjs.com", "libraries.io", "sourceforge.net"}
+
+
+def _is_junk_article(headline: str, article: dict) -> bool:
+    """Return True if the article looks like a package release, not real news."""
+    source = (article.get("source", {}).get("name") or "").lower()
+    url = (article.get("url") or "").lower()
+
+    if any(s in source for s in _JUNK_SOURCES):
+        return True
+    if any(s in url for s in _JUNK_SOURCES):
+        return True
+    for pat in _JUNK_PATTERNS[:2]:  # version-number patterns on headline only
+        if pat.match(headline):
+            return True
+    if not headline or headline == "[Removed]":
+        return True
+    return False
+
+
 def fetch_ai_news() -> list[dict]:
     """Fetch recent AI-related articles from NewsAPI (last 24 hours)."""
     if not NEWSAPI_KEY:
@@ -105,14 +134,17 @@ def fetch_ai_news() -> list[dict]:
 
         articles = []
         for article in response.get("articles", []):
+            headline = article.get("title", "")
+            if not headline or _is_junk_article(headline, article):
+                continue
             articles.append({
-                "headline": article.get("title", ""),
+                "headline": headline,
                 "source": article.get("source", {}).get("name", "Unknown"),
                 "url": article.get("url", ""),
                 "published_at": article.get("publishedAt", ""),
                 "description": article.get("description", ""),
             })
-        logger.info("Fetched %d AI news articles", len(articles))
+        logger.info("Fetched %d AI news articles (after filtering)", len(articles))
         return articles
 
     except Exception as exc:
@@ -181,30 +213,51 @@ def fetch_economic_indicators() -> dict | None:
     base_url = "https://api.stlouisfed.org/fred/series/observations"
     indicators = {}
 
-    series_map = {
-        "unemployment_rate": "UNRATE",
-        "inflation_rate": "CPIAUCSL",
-    }
+    # Unemployment: latest value from UNRATE (already a percentage)
+    try:
+        params = {
+            "series_id": "UNRATE",
+            "api_key": FRED_API_KEY,
+            "file_type": "json",
+            "limit": 1,
+            "sort_order": "desc",
+        }
+        resp = requests.get(base_url, params=params, timeout=15)
+        resp.raise_for_status()
+        observations = resp.json().get("observations", [])
+        if observations:
+            indicators["unemployment_rate"] = float(observations[0]["value"])
+        else:
+            indicators["unemployment_rate"] = None
+    except Exception as exc:
+        logger.error("FRED fetch failed for UNRATE: %s", exc)
+        indicators["unemployment_rate"] = None
 
-    for key, series_id in series_map.items():
-        try:
-            params = {
-                "series_id": series_id,
-                "api_key": FRED_API_KEY,
-                "file_type": "json",
-                "limit": 1,
-                "sort_order": "desc",
-            }
-            resp = requests.get(base_url, params=params, timeout=15)
-            resp.raise_for_status()
-            observations = resp.json().get("observations", [])
-            if observations:
-                indicators[key] = float(observations[0]["value"])
-            else:
-                indicators[key] = None
-        except Exception as exc:
-            logger.error("FRED fetch failed for %s: %s", series_id, exc)
-            indicators[key] = None
+    # Inflation: year-over-year % change from CPI index (CPIAUCSL)
+    # The raw CPIAUCSL value is an index (e.g. 326), not a percentage.
+    # We fetch 13 months and compute (latest - 12_months_ago) / 12_months_ago * 100.
+    try:
+        params = {
+            "series_id": "CPIAUCSL",
+            "api_key": FRED_API_KEY,
+            "file_type": "json",
+            "limit": 13,
+            "sort_order": "desc",
+        }
+        resp = requests.get(base_url, params=params, timeout=15)
+        resp.raise_for_status()
+        observations = resp.json().get("observations", [])
+        if len(observations) >= 12:
+            latest_cpi = float(observations[0]["value"])
+            year_ago_cpi = float(observations[11]["value"])
+            yoy_change = ((latest_cpi - year_ago_cpi) / year_ago_cpi) * 100
+            indicators["inflation_rate"] = round(yoy_change, 1)
+        else:
+            indicators["inflation_rate"] = None
+            logger.warning("Not enough CPI data for YoY calculation")
+    except Exception as exc:
+        logger.error("FRED fetch failed for CPIAUCSL: %s", exc)
+        indicators["inflation_rate"] = None
 
     indicators["last_updated"] = datetime.now().isoformat()
     indicators["source"] = "FRED"

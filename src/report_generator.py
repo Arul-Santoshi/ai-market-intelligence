@@ -8,6 +8,27 @@ from config import REPORT_FOLDER
 logger = logging.getLogger(__name__)
 
 
+import re
+
+
+def _strip_claude_headers(text: str) -> str:
+    """Remove markdown headers that Claude adds to its own output.
+
+    Claude sometimes wraps its response in headers like '# Market Analysis'
+    or '## Executive Summary'. These clash with the report's own structure,
+    so we strip any leading H1/H2/H3 lines.
+    """
+    lines = text.strip().splitlines()
+    cleaned = []
+    for line in lines:
+        if re.match(r"^#{1,3}\s+", line):
+            # Keep the text content but drop the header markup
+            cleaned.append(re.sub(r"^#{1,3}\s+", "**", line) + "**")
+        else:
+            cleaned.append(line)
+    return "\n".join(cleaned)
+
+
 def _direction_arrow(change: float | None) -> str:
     if change is None:
         return ""
@@ -37,7 +58,7 @@ def generate_markdown_report(
 
     # ── Executive Summary ───────────────────────────────────────────────
     lines.append("## Executive Summary")
-    lines.append(f"{summary}\n")
+    lines.append(f"{_strip_claude_headers(summary)}\n")
 
     # ── Stock Market Overview ───────────────────────────────────────────
     lines.append("## Stock Market Overview")
@@ -88,22 +109,6 @@ def generate_markdown_report(
             lines.append(f"- [{emoji}] **{a['headline']}**")
         lines.append("")
 
-    # Also show full articles with URLs if available
-    news = aggregated_data.get("news", {})
-    full_articles = news.get("articles", [])[:5]
-    if full_articles:
-        lines.append("### Sources")
-        lines.append("")
-        for a in full_articles:
-            source = a.get("source", "")
-            url = a.get("url", "")
-            headline = a.get("headline", "")
-            if url:
-                lines.append(f"- [{headline}]({url}) — *{source}*")
-            else:
-                lines.append(f"- {headline} — *{source}*")
-        lines.append("")
-
     # ── GitHub Trending AI Projects ─────────────────────────────────────
     lines.append("## GitHub Trending AI Projects")
     lines.append("")
@@ -135,7 +140,7 @@ def generate_markdown_report(
 
     # ── Key Insights (Claude) ───────────────────────────────────────────
     lines.append("## Key Insights")
-    lines.append(f"{insights}\n")
+    lines.append(f"{_strip_claude_headers(insights)}\n")
 
     # ── Comparison to Yesterday ─────────────────────────────────────────
     lines.append("## Comparison to Yesterday")
@@ -174,10 +179,10 @@ def generate_markdown_report(
         else:
             lines.append("- **Sentiment:** No previous data for comparison")
 
-        # New / dropped repos
+        # New / dropped repos (cap at 5 for readability)
         gh_cmp = comparison_data.get("github", {})
-        new_repos = gh_cmp.get("new_repos", [])
-        dropped = gh_cmp.get("dropped_repos", [])
+        new_repos = gh_cmp.get("new_repos", [])[:5]
+        dropped = gh_cmp.get("dropped_repos", [])[:5]
         if new_repos:
             lines.append(f"- **New trending repos:** {', '.join(new_repos)}")
         if dropped:
@@ -214,7 +219,7 @@ def _detect_anomalies(aggregated_data: dict) -> list[str]:
         if info is None:
             continue
         pct = abs(info.get("change_percent", 0))
-        if pct >= 3.0:
+        if pct >= 2.0:
             direction = "gain" if info["change_percent"] > 0 else "drop"
             flags.append(f"**{ticker}** had a significant {direction} of {info['change_percent']}%")
 
